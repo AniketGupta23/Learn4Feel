@@ -1,0 +1,420 @@
+from tkinter import *
+from tkinter import Entry, messagebox, filedialog
+from PIL import Image, ImageTk
+import mysql.connector
+import fitz  # PyMuPDF
+
+
+mydb = mysql.connector.connect(host = 'localhost', user = 'root', password = 'anisql123', database = 'Learn4Feel')
+mycursor = mydb.cursor()
+
+
+# Create the main window
+root = Tk()
+root.title("Learn4Feel")
+root.withdraw()
+
+class PDFViewer:
+    def __init__(self, file_path):
+        global open_windows
+        open_windows += 1
+        self.pdf_document = fitz.open(file_path)
+        self.current_page = 0
+        self.pdf_window = Toplevel(root)
+        self.pdf_window.title("PDF Viewer")
+
+        # Create a canvas to display the PDF
+        self.canvas_pdf = Canvas(self.pdf_window)
+        self.canvas_pdf.pack(fill="both", expand=True)
+
+        # Create navigation buttons
+        self.prev_button = Button(self.pdf_window, text="Previous", command=self.prev_page)
+        self.prev_button.pack(side="left")
+
+        self.next_button = Button(self.pdf_window, text="Next", command=self.next_page)
+        self.next_button.pack(side="right")
+
+        # Bind the resize event to adjust the image when the window is resized
+        self.pdf_window.bind("<Configure>", self.resize_and_display)
+
+        # Display the first page
+        self.display_page()
+
+
+    def display_page(self):
+        # Load the current page and render it as an image
+        page = self.pdf_document.load_page(self.current_page)
+        pix = page.get_pixmap()
+
+        # Convert the image to a format suitable for Tkinter
+        self.pdf_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+        # Initial display of the image
+        self.resize_and_display()
+
+    def resize_and_display(self, event=None):
+        # Clear the canvas before displaying a new page
+        self.canvas_pdf.delete("all")
+
+        # Get the dimensions of the canvas
+        canvas_width = self.canvas_pdf.winfo_width()
+        canvas_height = self.canvas_pdf.winfo_height()
+
+        # Ensure canvas size is valid
+        if canvas_width > 0 and canvas_height > 0:
+            # Resize the image to fit the canvas while maintaining the aspect ratio
+            if self.pdf_image:
+                aspect_ratio = self.pdf_image.width / self.pdf_image.height
+
+                if canvas_width / canvas_height > aspect_ratio:
+                    new_height = canvas_height
+                    new_width = int(new_height * aspect_ratio)
+                else:
+                    new_width = canvas_width
+                    new_height = int(new_width / aspect_ratio)
+
+                # Check if new dimensions are valid
+                if new_width > 0 and new_height > 0:
+                    # Resize the image
+                    resized_image = self.pdf_image.resize((new_width, new_height), Image.LANCZOS)
+                    pdf_photo = ImageTk.PhotoImage(resized_image)
+
+                    # Display the image on the canvas
+                    self.canvas_pdf.create_image(0, 0, image=pdf_photo, anchor="nw")
+
+                    # Keep a reference to avoid garbage collection
+                    self.canvas_pdf.img_tk = pdf_photo
+
+                    # Update the window title with the current page number
+                    self.pdf_window.title(f"PDF Viewer - Page {self.current_page + 1} of {self.pdf_document.page_count}")
+
+    def prev_page(self):
+        if self.current_page > 0:
+            self.current_page -= 1
+            self.display_page()
+
+    def next_page(self):
+        if self.current_page < self.pdf_document.page_count - 1:
+            self.current_page += 1
+            self.display_page()
+
+def display_pdf(file_path):
+    viewer = PDFViewer(file_path)
+
+def notes():
+    global notes_bg_image
+    global notes_bg_photo
+    global open_windows
+    open_windows += 1
+
+    notes_window = Toplevel(root)
+    notes_window.title("Select Notes")
+
+    notes_bg_image = Image.open(r"C:\Users\Aniket\OneDrive\Desktop\HackWithMAIT\notes bg.png")
+    notes_bg_image = notes_bg_image.resize((150,150))
+    notes_bg_photo = ImageTk.PhotoImage(notes_bg_image)
+    
+
+    canvas_notes = Canvas(notes_window, width = notes_bg_image.width, height = notes_bg_image.height)
+    canvas_notes.create_image(0,0, image = notes_bg_photo, anchor = "nw")
+
+    # Define the buttons and their respective PDF file paths
+    pdf_paths = {
+        "Thermodynamics": r"C:\Users\Aniket\OneDrive\Desktop\HackWithMAIT\Thermodynamics.pdf",
+        "Simple Harmonic Motion": r"C:\Users\Aniket\OneDrive\Desktop\HackWithMAIT\SHM.pdf",
+        "Ray Optics": r"C:\Users\Aniket\OneDrive\Desktop\HackWithMAIT\RO.pdf"
+    }
+    canvas_notes.grid(row = 0, column = 0, rowspan = len(list(pdf_paths.keys())))
+
+
+    def show_pdf(topic):
+        display_pdf(pdf_paths[topic])
+
+    
+    for topic in list(pdf_paths.keys()):
+        button = Button(notes_window, text=topic, command=lambda t=topic: show_pdf(t))
+        button.grid(row = list(pdf_paths.keys()).index(topic), column = 1)
+
+def on_enter(e, colour, g):
+    e.widget.config({g: colour})  # Use config() to set widget attributes
+
+def on_leave(e, colour, g):
+    e.widget.config({g: colour})
+
+def store_account(username, actualname, password, create_window):
+    
+    if not username or not actualname or not password:
+        messagebox.showerror("Error", "All fields are required!")
+        return
+
+    try:
+        query = "INSERT INTO userdata (username, actualname, password) VALUES (%s, %s, %s)"
+        values = (username.lower(), actualname, password)
+        mycursor.execute(query, values)
+        mydb.commit()
+        messagebox.showinfo("Success", "Account created successfully!")
+        create_window.destroy()  # Close the account creation window after success
+        homepage('store_account')
+    except Exception as e:
+        messagebox.showerror(f"{username} already exists!")
+
+def handle_login(entry1, entry2):
+    global username
+    username = entry1.get().lower()
+    password = entry2.get()
+    
+    # Sample query to validate credentials (modify according to your database schema)
+    mycursor.execute("SELECT * FROM userdata WHERE username=%s AND password=%s", (username, password))
+    result = mycursor.fetchone()
+    
+    if result:
+        homepage('login')  # Call homepage if login is successful
+    else:
+        messagebox.showerror("Error", "Invalid username or password")
+
+def quiz():
+
+    quiz_window = Toplevel(root)
+    quiz_window.title("Select Quiz")
+    
+    # Define the buttons and their respective quiz file paths
+    quiz_paths = {
+        "Thermodynamics": r"C:\Users\Aniket\OneDrive\Desktop\HackWithMAIT\Thermodynamics.pdf",
+        "Simple Harmonic Motion": r"C:\Users\Aniket\OneDrive\Desktop\HackWithMAIT\SHM.pdf",
+        "Ray Optics": r"C:\Users\Aniket\OneDrive\Desktop\HackWithMAIT\RO.pdf"
+    }
+
+    def show_pdf(topic):
+        display_pdf(quiz_paths[topic])
+
+    for topic in quiz_paths.keys():
+        button = Button(quiz_window, text=topic, command=lambda t=topic: show_pdf(t))
+        button.pack(pady=10)
+        
+def about_us():
+    global about_image
+    global about_photo
+    global open_windows
+    open_windows += 1
+
+    about = Toplevel(root)
+    about.resizable(False, False)
+
+
+    about_image = Image.open(r"C:\Users\Aniket\OneDrive\Desktop\HackWithMAIT\about us.png")
+    about_photo = ImageTk.PhotoImage(about_image)
+
+    canvas_about = Canvas(about, width = about_image.width, height = about_image.height)
+    canvas_about.pack(fill = "both", anchor = "nw")
+    canvas_about.create_image(0,0, image = about_photo, anchor = "nw")
+
+def contact_us():
+    global contact_image
+    global contact_photo
+    global open_windows
+    open_windows += 1
+
+    contact = Toplevel(root)
+    contact.resizable(False, False)
+
+
+    contact_image = Image.open(r"C:\Users\Aniket\OneDrive\Desktop\HackWithMAIT\contact us.png")
+    contact_photo = ImageTk.PhotoImage(contact_image)
+
+    canvas_contact = Canvas(contact, width = contact_image.width, height = contact_image.height)
+    canvas_contact.pack(fill = "both", anchor = "nw")
+    canvas_contact.create_image(0,0, image = contact_photo, anchor = "nw")
+
+    con_us = Label(contact, text="Contact Us", font=("Poppins", 12, "bold"), fg="#333333", bg="#c4d9de")
+    canvas_contact.create_window(contact_image.width - 300, 30, window=con_us)
+
+def homepage(caller):
+    global hp_image
+    global hp_photo
+    global notes_image
+    global notes_photo
+    global quiz_image
+    global quiz_photo
+    global open_windows
+    open_windows += 1
+
+
+
+    if caller == 'login':
+        homepage_username = username
+    else:
+        homepage_username = username_acc.get()
+
+    homepage = Toplevel(root)
+    homepage.title("Homepage")
+    homepage.resizable(False, False)
+    login.destroy()
+
+
+    hp_image = Image.open(r"C:\Users\Aniket\OneDrive\Desktop\HackWithMAIT\Homepage_bg.png")
+    hp_photo = ImageTk.PhotoImage(hp_image)
+    
+    notes_image = Image.open(r"C:\Users\Aniket\OneDrive\Desktop\HackWithMAIT\Notes.png")
+    notes_image = notes_image.resize((150,150))
+    notes_photo = ImageTk.PhotoImage(notes_image)
+    
+    quiz_image = Image.open(r"C:\Users\Aniket\OneDrive\Desktop\HackWithMAIT\quiz.png")
+    quiz_image = quiz_image.resize((150,150))
+    quiz_photo = ImageTk.PhotoImage(quiz_image)
+    
+    screen_width_login = homepage.winfo_screenwidth() # Width of the screen
+    screen_height_login = homepage.winfo_screenheight() # Height of the screen
+
+    x = (screen_width_login/150)
+    y = (screen_height_login/50)
+
+    homepage.geometry(f'{hp_image.width}x{hp_image.height}+{int(x)}+{int(y)}')
+
+    canvashp = Canvas(homepage, width = hp_image.width, height = hp_image.height)
+    canvashp.pack(fill = "both", anchor = "nw")
+    canvashp.create_image(0,0, image = hp_photo, anchor = "nw")
+
+    contact_btn = Button(homepage, text="Contact Us", font=("Poppins", 10, "bold"), fg="#333333", bg="#c4d9de", command = contact_us)
+    about_btn = Button(homepage, text="About Us", font=("Poppins", 10, "bold"), fg="#333333", bg="#c4d9de", command = about_us)
+    username_lbl = Label(homepage, text=homepage_username, font=("Poppins", 12, "bold"), fg="#333333", bg="#c4d9de")
+
+    notes_btn = Button(homepage, fg="#ffffff", image = notes_photo, command = notes)
+    quiz_btn = Button(homepage, fg="#ffffff", image = quiz_photo, command = quiz)
+
+    notes_label = Label(homepage, text = 'Notes', font=("Poppins", 18, "bold"))
+    quiz_label = Label(homepage, text = ' Quiz ', font=("Poppins", 18, "bold"))
+
+
+    # Place the top-right buttons using Canvas coordinates
+    canvashp.create_window(hp_image.width - 80, 30, window=username_lbl)
+    canvashp.create_window(hp_image.width - 160, 30, window=about_btn)
+    canvashp.create_window(hp_image.width - 250, 30, window=contact_btn)
+
+
+    # Calculate coordinates for centering the "Notes" and "Quiz" buttons
+    mid_x = hp_image.width // 2
+    mid_y = hp_image.height // 2
+
+    canvashp.create_window(mid_x - 125, mid_y, window=notes_btn)  # Position Notes button
+    canvashp.create_window(mid_x + 125, mid_y, window=quiz_btn)
+    canvashp.create_window(mid_x - 125, mid_y + 115, window=notes_label)
+    canvashp.create_window(mid_x + 125, mid_y + 115, window=quiz_label)   # Position Quiz button
+
+def create_acc():
+    global account
+    global acc_image
+    global acc_photo
+    global username_acc
+    global open_windows
+    open_windows += 1
+
+    
+    acc_image = Image.open(r"C:\Users\Aniket\OneDrive\Desktop\HackWithMAIT\Create Account.png")
+    acc_photo = ImageTk.PhotoImage(acc_image)
+
+    account = Toplevel(root)
+    account.title("Learn4Feel - Create New Account")
+    account.resizable(False, False)
+    login.destroy()
+    open_windows -= 1
+
+
+    screen_width_acc = account.winfo_screenwidth() # Width of the screen
+    screen_height_acc = account.winfo_screenheight() # Height of the screen
+
+    x = (screen_width_acc/150)
+    y = (screen_height_acc/50)
+
+    account.geometry(f'{int(acc_image.width)}x{int(acc_image.height)}+{int(x)}+{int(y)}')
+
+
+    canvas_acc = Canvas(account, width = acc_image.width, height = acc_image.height)
+    canvas_acc.pack(fill = "both", anchor = "nw")
+    canvas_acc.create_image(0,0, image = acc_photo, anchor = "nw")
+
+    actual_acc = Entry(account, width = 20, bg = "#c4d9de", borderwidth = 0, font = ("Poppins", 15))
+    username_acc = Entry(account, width = 20, bg = "#c4d9de", borderwidth = 0, font = ("Poppins", 15))
+    password_acc = Entry(account, width = 20, bg = "#c4d9de", borderwidth = 0, font = ("Poppins", 15), show = "*")
+    un_acc = Label(account, text = "Enter Username", font = ("Poppins", 12, "bold"), bg = "#c4d9de")
+    pa_acc = Label(account, text = "Enter Password", font = ("Poppins", 12, "bold"), bg = "#c4d9de")
+    an_acc = Label(account, text = "Enter Your Name", font = ("Poppins", 12, "bold"), bg = "#c4d9de")
+    sign_acc = Button(account, text = "Sign In", font = ("Poppins", 18, "bold"), 
+                      command = lambda: store_account(username_acc.get(), actual_acc.get(), password_acc.get(), account), 
+                        fg = "#333333", bg = "#35B9DA")
+
+
+    sign_acc.bind("<Enter>", lambda e: on_enter(e, '#BFC1C2', 'background'))  
+    sign_acc.bind("<Leave>", lambda e: on_leave(e, '#35B9DA', 'background'))  
+
+
+    canvas_acc.create_window(260, 280, window = actual_acc)
+    canvas_acc.create_window(260, 350, window = username_acc)
+    canvas_acc.create_window(260, 430, window = password_acc)
+    canvas_acc.create_window(260, 315, window = un_acc)
+    canvas_acc.create_window(260, 255, window = an_acc)
+    canvas_acc.create_window(260, 395, window = pa_acc)
+
+    canvas_acc.create_window(260, 485, window = sign_acc)
+
+def login():
+    global login
+    global login_image
+    global login_photo
+    global logo_image
+    global logo_photo
+    global open_windows
+    open_windows += 1
+
+    
+    login = Toplevel(root)
+    login.title("Learn4Feel - Login")
+    login.resizable(False, False)
+
+
+    login_image = Image.open(r"C:\Users\Aniket\OneDrive\Desktop\HackWithMAIT\Login Page Welcome Back.png")
+    login_photo = ImageTk.PhotoImage(login_image)
+
+    logo_image = Image.open(r"C:\Users\Aniket\OneDrive\Desktop\HackWithMAIT\Horizontal Logo.png")
+    logo_image = logo_image.resize((225,75))
+    logo_photo = ImageTk.PhotoImage(logo_image)
+
+    screen_width_login = login.winfo_screenwidth() # Width of the screen
+    screen_height_login = login.winfo_screenheight() # Height of the screen
+
+    x = (screen_width_login/150)
+    y = (screen_height_login/50)
+
+    login.geometry(f'{login_image.width}x{login_image.height}+{int(x)}+{int(y)}')
+
+    canvas = Canvas(login, width = login_image.width, height = login_image.height)
+    canvas.pack(fill = "both", expand=True)
+
+    canvas.create_image(0, 0, image = login_photo, anchor = "nw")
+
+    entry1 = Entry(login, width = 20, bg = "#c4d9de", borderwidth = 0, font = ("Poppins", 15))
+    entry2 = Entry(login, width = 20, bg = "#c4d9de", borderwidth = 0, font = ("Poppins", 12), show = "*")
+    un = Label(login, text = "Enter Username", font = ("Poppins", 12, "bold"), bg = "#c4d9de")
+    pa = Label(login, text = "Enter Password", font = ("Poppins", 12, "bold"), bg = "#c4d9de")
+    log = Button(login, text = "Login", font = ("Poppins", 18, "bold"), command = lambda: handle_login(entry1, entry2), fg = "#333333", bg = "#35B9DA")
+    acc = Button(login, text = "Create New Account", font = ("Poppins", 12, "bold"), command = create_acc, fg = "#655C5C", bg = "#c4d9de", borderwidth = 0)
+    logo = Label(login, image = logo_photo)
+
+    log.bind("<Enter>", lambda e: on_enter(e, '#BFC1C2', 'background'))  
+    log.bind("<Leave>", lambda e: on_leave(e, '#35B9DA', 'background'))  
+
+    acc.bind("<Enter>", lambda e: on_enter(e, '#26408B', 'foreground'))  
+    acc.bind("<Leave>", lambda e: on_leave(e, '#655C5C', 'foreground'))  
+
+
+
+    canvas.create_window(260, 220, window = entry1)
+    canvas.create_window(260, 288, window = entry2)
+    canvas.create_window(260, 195, window = un)
+    canvas.create_window(260, 262, window = pa)
+    canvas.create_window(260, 350, window = log)
+    canvas.create_window(385, 410, window = acc)
+    canvas.create_window(260, 480, window = logo)
+
+
+login()
+root.mainloop()
